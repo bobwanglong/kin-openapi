@@ -31,7 +31,10 @@ func failedToResolveRefFragmentPart(value, what string) error {
 type Loader struct {
 	// IsExternalRefsAllowed enables visiting other files
 	IsExternalRefsAllowed bool
-
+	// IsScanComponents enables scan components
+	IsScanComponents bool
+	// true strict，false pass
+	IsPathOperationParametersStrict bool
 	// ReadFromURIFunc allows overriding the any file/URL reading func
 	ReadFromURIFunc ReadFromURIFunc
 
@@ -191,54 +194,55 @@ func (loader *Loader) ResolveRefsIn(doc *T, location *url.URL) (err error) {
 	if loader.visitedPathItemRefs == nil {
 		loader.resetVisitedPathItemRefs()
 	}
+	if loader.IsScanComponents {
+		if components := doc.Components; components != nil {
+			for _, component := range components.Headers {
+				if err = loader.resolveHeaderRef(doc, component, location); err != nil {
+					return
+				}
+			}
+			for _, component := range components.Parameters {
+				if err = loader.resolveParameterRef(doc, component, location); err != nil {
+					return
+				}
+			}
+			for _, component := range components.RequestBodies {
+				if err = loader.resolveRequestBodyRef(doc, component, location); err != nil {
+					return
+				}
+			}
+			for _, component := range components.Responses {
+				if err = loader.resolveResponseRef(doc, component, location); err != nil {
+					return
+				}
+			}
+			for _, component := range components.Schemas {
+				if err = loader.resolveSchemaRef(doc, component, location, []string{}); err != nil {
+					return
+				}
+			}
+			for _, component := range components.SecuritySchemes {
+				if err = loader.resolveSecuritySchemeRef(doc, component, location); err != nil {
+					return
+				}
+			}
 
-	if components := doc.Components; components != nil {
-		for _, component := range components.Headers {
-			if err = loader.resolveHeaderRef(doc, component, location); err != nil {
-				return
+			examples := make([]string, 0, len(components.Examples))
+			for name := range components.Examples {
+				examples = append(examples, name)
 			}
-		}
-		for _, component := range components.Parameters {
-			if err = loader.resolveParameterRef(doc, component, location); err != nil {
-				return
+			sort.Strings(examples)
+			for _, name := range examples {
+				component := components.Examples[name]
+				if err = loader.resolveExampleRef(doc, component, location); err != nil {
+					return
+				}
 			}
-		}
-		for _, component := range components.RequestBodies {
-			if err = loader.resolveRequestBodyRef(doc, component, location); err != nil {
-				return
-			}
-		}
-		for _, component := range components.Responses {
-			if err = loader.resolveResponseRef(doc, component, location); err != nil {
-				return
-			}
-		}
-		for _, component := range components.Schemas {
-			if err = loader.resolveSchemaRef(doc, component, location, []string{}); err != nil {
-				return
-			}
-		}
-		for _, component := range components.SecuritySchemes {
-			if err = loader.resolveSecuritySchemeRef(doc, component, location); err != nil {
-				return
-			}
-		}
 
-		examples := make([]string, 0, len(components.Examples))
-		for name := range components.Examples {
-			examples = append(examples, name)
-		}
-		sort.Strings(examples)
-		for _, name := range examples {
-			component := components.Examples[name]
-			if err = loader.resolveExampleRef(doc, component, location); err != nil {
-				return
-			}
-		}
-
-		for _, component := range components.Callbacks {
-			if err = loader.resolveCallbackRef(doc, component, location); err != nil {
-				return
+			for _, component := range components.Callbacks {
+				if err = loader.resolveCallbackRef(doc, component, location); err != nil {
+					return
+				}
 			}
 		}
 	}
@@ -511,11 +515,11 @@ func (loader *Loader) resolveHeaderRef(doc *T, component *HeaderRef, documentPat
 		return nil
 	}
 
-	if schema := value.Schema; schema != nil {
-		if err := loader.resolveSchemaRef(doc, schema, documentPath, []string{}); err != nil {
-			return err
-		}
-	}
+	// if schema := value.Schema; schema != nil {
+	// 	if err := loader.resolveSchemaRef(doc, schema, documentPath, []string{}); err != nil {
+	// 		return err
+	// 	}
+	// }
 	return nil
 }
 
@@ -997,11 +1001,14 @@ func (loader *Loader) resolvePathItemRef(doc *T, pathItem *PathItem, documentPat
 		}
 	}
 	for _, operation := range pathItem.Operations() {
-		for _, parameter := range operation.Parameters {
-			if err = loader.resolveParameterRef(doc, parameter, documentPath); err != nil {
-				return
+		if loader.IsPathOperationParametersStrict {
+			for _, parameter := range operation.Parameters {
+				if err = loader.resolveParameterRef(doc, parameter, documentPath); err != nil {
+					return
+				}
 			}
 		}
+
 		if requestBody := operation.RequestBody; requestBody != nil {
 			if err = loader.resolveRequestBodyRef(doc, requestBody, documentPath); err != nil {
 				return
